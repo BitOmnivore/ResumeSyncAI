@@ -64,52 +64,64 @@ const Index = () => {
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string;
       if (!apiKey) throw new Error("VITE_GEMINI_API_KEY is not set");
 
-      const systemPrompt = `You are an AI simulating a modern Applicant Tracking System (ATS). 
-Your task is to evaluate how well a candidate’s resume (plain text from PDF) matches a given job description.
+      const systemPrompt = `You are an advanced AI simulating a modern Applicant Tracking System (ATS) used by top tech companies.
 
-Return an **ATS Optimization Score (0–100)**, **Resume-to-JD Match Percentage (0–100)**, and other descriptive outputs as described below.
+Your task is to analyze how well a candidate’s resume (plain text extracted from PDF) aligns with a given job description (JD).
 
----
-
-### Rigid / Knockout Factors (must strictly apply):
-
-1. **CGPA**
-   - If the resume CGPA is below the JD requirement, reduce ATS score significantly (>= 20 points reduction for 0.5 below requirement).  
-2. **Graduation Year**
-   - If the resume graduation year is later than the JD requirement, reduce ATS score significantly.  
-3. **Degree / Mandatory Certifications**
-   - Must meet JD requirement; otherwise, consider it a knockout and reduce score heavily.
-
-### Flexible Factors (minor adjustments):
-
-- Keywords (skills, technologies, job title relevance)  
-- Experience relevance (projects, internships)  
-- Achievements (measurable outcomes)  
-- Resume structure & formatting  
-
-### Reasoning
-
-- Clearly mention which knockout factors affected the score.  
-- Explain other flexible factors briefly.  
-
----
-
-### JSON Output Format
-
-Return ONLY JSON:
-
+If the user provides random, incomplete, or very short text that does not resemble a valid resume or job description, respond ONLY with this JSON:
 {
-  "ATS_Score": {"value": <number 0-100>, "reason": "<one-sentence reason>"},
+  "error": "Invalid input. Please provide both a valid resume and a detailed job description for analysis."
+}
+
+Otherwise, perform a detailed ATS-style evaluation and return the following metrics and reasoning.
+
+Evaluation Objectives:
+1. ATS Optimization Score (0–100) — overall alignment with JD.
+2. Resume-to-JD Match Percentage (0–100) — keyword, skill, and relevance score.
+3. Descriptive reasoning for all major deductions or strengths.
+
+Rigid / Knockout Factors (must strictly apply):
+1) CGPA / GPA — If the resume CGPA is below the JD requirement, deduct ≥ 20 points for every 0.5 difference.
+2) Graduation Year — If the graduation year is later than required, significantly reduce the score.
+3) Degree or Mandatory Certifications — If missing or mismatched, mark as a knockout and reduce the score heavily.
+4) Missing Core Eligibility — If the resume does not meet a clearly required qualification, list it as a knockout factor.
+
+Flexible Factors (adjust moderately):
+- Keyword Match — technical skills, tools, and role-specific terms.
+- Experience Relevance — projects, internships, and previous roles related to the JD.
+- Achievements & Metrics — measurable results or impactful work.
+- Resume Quality — formatting clarity, section structure, and professional tone.
+
+Reasoning & Insights:
+- Explicitly mention which knockout factors (if any) affected the score.
+- Provide concise reasoning for flexible factor adjustments.
+- Include actionable recommendations for improvement.
+
+Output Format (JSON Only) — Always respond only in JSON, with no extra text:
+{
+  "ATS_Score": {
+    "value": <number 0-100>,
+    "reason": "<one-sentence summary of score reasoning>"
+  },
   "Resume_to_JD_Match": {
     "percentage": <number 0-100>,
-    "comparison_table": [{"Job_Requirement": "...", "Resume_Evidence": "...", "Match_Status": "Strong Match|Match|Partial Match|Missing"}]
+    "comparison_table": [
+      {
+        "Job_Requirement": "<string>",
+        "Resume_Evidence": "<string or 'Not Found'>",
+        "Match_Status": "Strong Match | Match | Partial Match | Missing"
+      }
+    ]
   },
-  "ATS_Knockout_Factors": ["<string>", ...],
-  "Strengths": ["<string>", ...],
-  "Conclusion": "<string>",
-  "Recommendations": ["<string>", ...],
-  "Overall_Summary": "<string>"
-}`;
+  "ATS_Knockout_Factors": ["<string>", "..."],
+  "Strengths": ["<string>", "..."],
+  "Recommendations": ["<string>", "..."],
+  "Conclusion": "<one concise paragraph summarizing the evaluation>",
+  "Overall_Summary": "<human-readable summary of how well the resume fits the job>"
+}
+
+Validation Logic (Before Evaluation):
+If either the resume text or job description has fewer than 100 characters, lacks essential sections (e.g., Education, Skills, Experience), or appears random/unrelated to hiring context, then do not evaluate and instead return the error JSON above.`;
 
       const userPrompt = `Analyze this resume against the provided job description.
 
@@ -143,6 +155,17 @@ Return the JSON and text outputs exactly as specified in the system prompt.`;
       const fenced1 = numericText.match(/```json\s*([\s\S]*?)\s*```/) || numericText.match(/```\s*([\s\S]*?)\s*```/);
       const numericJson = JSON.parse((fenced1 ? fenced1[1] : numericText).trim());
 
+      // If model returned an error JSON, show toast and stop
+      if (numericJson && typeof numericJson === "object" && "error" in numericJson) {
+        toast({
+          title: "Invalid Input",
+          description: String(numericJson.error ?? "Invalid input provided."),
+          variant: "destructive",
+        });
+        setIsAnalyzing(false);
+        return;
+      }
+
       // --- Call 2: Descriptive outputs ---
       const descriptiveResp = await fetch(
         `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
@@ -160,6 +183,21 @@ Return the JSON and text outputs exactly as specified in the system prompt.`;
       const descriptiveData = await descriptiveResp.json();
       const descriptiveText = descriptiveData?.candidates?.[0]?.content?.parts?.[0]?.text as string | undefined;
       if (!descriptiveText) throw new Error("No descriptive content from Gemini");
+
+      // If second call also returns error JSON, show toast and stop
+      const fenced2 = descriptiveText.match(/```json\s*([\s\S]*?)\s*```/) || descriptiveText.match(/```\s*([\s\S]*?)\s*```/);
+      try {
+        const descriptiveJson = JSON.parse((fenced2 ? fenced2[1] : descriptiveText).trim());
+        if (descriptiveJson && typeof descriptiveJson === "object" && "error" in descriptiveJson) {
+          toast({
+            title: "Invalid Input",
+            description: String(descriptiveJson.error ?? "Invalid input provided."),
+            variant: "destructive",
+          });
+          setIsAnalyzing(false);
+          return;
+        }
+      } catch {}
 
       // --- Merge results ---
       const knockoutFactors = Array.isArray(numericJson.ATS_Knockout_Factors) && numericJson.ATS_Knockout_Factors.length > 0
