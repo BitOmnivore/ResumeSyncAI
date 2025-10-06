@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ResumeSyncAI</title>
+    <meta name="description" content="ResumeSyncAI: AI-powered resume analysis with ATS scores, match insights, and professional summaries." />
+    <meta name="author" content="ResumeSyncAI" />
+    <link rel="icon" href="/favicon.ico" />
+
+    <meta property="og:title" content="ResumeSyncAI" />
+    <meta property="og:description" content="AI-powered resume analysis with ATS scores, match insights, and professional summaries." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/placeholder.svg" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="/placeholder.svg" />
+
+    <!-- pdf.js for client-side PDF extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+    <script>
+      if (window['pdfjsLib']) {
+        window['pdfjsLib'].GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      }
+    </script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
